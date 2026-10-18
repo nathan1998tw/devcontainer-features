@@ -1,24 +1,24 @@
 {
-    "id": "grok",
-    "version": "1.0.0",
-    "name": "Grok",
-    "description": "Install Grok Build CLI (grok)",
-    "documentationURL": "https://x.ai/cli",
-    "options": {
-        "version": {
-            "type": "string",
-            "default": "latest",
-            "description": "Version of Grok to install"
-        },
-        "channel": {
-            "type": "string",
-            "enum": [
-                "stable",
-                "alpha",
-                "enterprise"
-            ],
-            "default": "stable",
-            "description": "Release channel when version is latest"
-        }
+  "id": "grok",
+  "version": "1.0.62",
+  "name": "Grok",
+  "description": "Install Grok Build CLI (grok)",
+  "documentationURL": "https://x.ai/cli",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "1.0.62",
+      "description": "Version of Grok to install"
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "stable",
+        "alpha",
+        "enterprise"
+      ],
+      "default": "stable",
+      "description": "Release channel when version is latest"
     }
+  }
 }
