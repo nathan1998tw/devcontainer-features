@@ -7,7 +7,7 @@
   "options": {
     "version": {
       "type": "string",
-      "default": "latest",
+      "default": "2.0.0",
       "description": "Version of OpenCode to install"
     }
   }

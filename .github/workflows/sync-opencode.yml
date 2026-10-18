@@ -34,8 +34,8 @@ jobs:
 
           FEATURE_FILE="src/opencode/devcontainer-feature.json"
 
-          # Read the latest version from npm's latest dist-tag.
-          UPSTREAM_VERSION="$(npm view opencode-ai@latest version)"
+          # Read the latest v2 CLI version from npm's latest dist-tag.
+          UPSTREAM_VERSION="$(npm view @opencode/cli@latest version)"
 
           # Only accept stable x.y.z versions.
           if [[ ! "$UPSTREAM_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
