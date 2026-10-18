@@ -33,54 +33,105 @@ jobs:
         with:
           ref: main
 
-      - name: Check and sync OpenCode version
+      - name: Check and sync feature versions
         id: sync
         shell: bash
         run: |
           set -euo pipefail
 
-          FEATURE_FILE="src/opencode/devcontainer-feature.json"
+          sync_feature() {
+            local feature_file="$1"
+            local upstream_version="$2"
+            local label="$3"
+            local current_version current_default
 
-          # Read the latest v2 CLI version from npm's latest dist-tag.
-          UPSTREAM_VERSION="$(npm view @opencode/cli@latest version)"
+            current_version="$(jq -r '.version' "$feature_file")"
+            current_default="$(jq -r '.options.version.default' "$feature_file")"
 
-          # Only accept stable x.y.z versions.
-          if [[ ! "$UPSTREAM_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Unexpected OpenCode version: $UPSTREAM_VERSION"
+            echo "${label} upstream version: ${upstream_version}"
+            echo "${label} feature version:  ${current_version}"
+            echo "${label} option default:   ${current_default}"
+
+            if [[ "$upstream_version" == "$current_version" &&
+                  "$upstream_version" == "$current_default" ]]; then
+              echo "${label} is already up to date."
+              return 1
+            fi
+
+            # Keep Feature metadata and its default install version in sync.
+            # If an enum exists, add the new version without removing old ones.
+            jq --arg version "$upstream_version" '
+              .version = $version
+              | .options.version.default = $version
+              | if (.options.version | has("enum")) then
+                  .options.version.enum =
+                    ((.options.version.enum + [$version]) | unique)
+                else
+                  .
+                end
+            ' "$feature_file" > "${feature_file}.tmp"
+
+            mv "${feature_file}.tmp" "$feature_file"
+            echo "Updated ${label} to ${upstream_version}."
+            return 0
+          }
+
+          OPENCODE_FEATURE_FILE="src/opencode/devcontainer-feature.json"
+          OPENCODE_VERSION="$(npm view @opencode/cli@latest version)"
+
+          if [[ ! "$OPENCODE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Unexpected OpenCode version: $OPENCODE_VERSION"
             exit 1
           fi
 
-          CURRENT_VERSION="$(jq -r '.version' "$FEATURE_FILE")"
-          CURRENT_DEFAULT="$(jq -r '.options.version.default' "$FEATURE_FILE")"
+          GROK_FEATURE_FILE="src/grok/devcontainer-feature.json"
+          GROK_CHANNEL="$(jq -r '.options.channel.default' "$GROK_FEATURE_FILE")"
 
-          echo "Upstream version: $UPSTREAM_VERSION"
-          echo "Feature version:  $CURRENT_VERSION"
-          echo "Option default:   $CURRENT_DEFAULT"
+          case "$GROK_CHANNEL" in
+            stable|alpha|enterprise) ;;
+            *)
+              echo "::error::Unexpected Grok channel: $GROK_CHANNEL"
+              exit 1
+              ;;
+          esac
 
-          if [[ "$UPSTREAM_VERSION" == "$CURRENT_VERSION" &&
-                "$UPSTREAM_VERSION" == "$CURRENT_DEFAULT" ]]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "OpenCode is already up to date."
-            exit 0
+          GROK_VERSION=""
+          for base_url in \
+            "https://x.ai/cli" \
+            "https://storage.googleapis.com/grok-build-public-artifacts/cli"; do
+            GROK_VERSION="$(curl -fsSL --max-time 30 "${base_url}/${GROK_CHANNEL}")" || continue
+            GROK_VERSION="$(printf '%s' "$GROK_VERSION" | tr -d '[:space:]')"
+            if [[ "$GROK_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._]+)?$ ]]; then
+              break
+            fi
+            GROK_VERSION=""
+          done
+
+          if [[ ! "$GROK_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._]+)?$ ]]; then
+            echo "::error::Unexpected Grok version: ${GROK_VERSION:-<empty>}"
+            exit 1
           fi
 
-          # Keep Feature metadata and its default install version in sync.
-          # If an enum exists, add the new version without removing old ones.
-          jq --arg version "$UPSTREAM_VERSION" '
-            .version = $version
-            | .options.version.default = $version
-            | if (.options.version | has("enum")) then
-                .options.version.enum =
-                  ((.options.version.enum + [$version]) | unique)
-              else
-                .
-              end
-          ' "$FEATURE_FILE" > "${FEATURE_FILE}.tmp"
+          OPENCODE_CHANGED=false
+          if sync_feature "$OPENCODE_FEATURE_FILE" "$OPENCODE_VERSION" "OpenCode"; then
+            OPENCODE_CHANGED=true
+          fi
 
-          mv "${FEATURE_FILE}.tmp" "$FEATURE_FILE"
+          GROK_CHANGED=false
+          if sync_feature "$GROK_FEATURE_FILE" "$GROK_VERSION" "Grok"; then
+            GROK_CHANGED=true
+          fi
 
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "version=$UPSTREAM_VERSION" >> "$GITHUB_OUTPUT"
+          CHANGED=false
+          if [[ "$OPENCODE_CHANGED" == "true" || "$GROK_CHANGED" == "true" ]]; then
+            CHANGED=true
+          fi
+
+          echo "opencode_changed=$OPENCODE_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "opencode_version=$OPENCODE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "grok_changed=$GROK_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "grok_version=$GROK_VERSION" >> "$GITHUB_OUTPUT"
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
 
       - name: Install Dev Container CLI
         if: github.event_name != 'schedule' || steps.sync.outputs.changed == 'true'
@@ -101,29 +152,47 @@ jobs:
             --registry ghcr.io \
             --namespace ${{ github.repository_owner }}/devcontainer-features
 
-      - name: Publish updated OpenCode feature
+      - name: Publish updated features
         if: github.event_name == 'schedule' && steps.sync.outputs.changed == 'true'
         shell: bash
         env:
-          UPSTREAM_VERSION: ${{ steps.sync.outputs.version }}
+          OPENCODE_CHANGED: ${{ steps.sync.outputs.opencode_changed }}
+          OPENCODE_VERSION: ${{ steps.sync.outputs.opencode_version }}
+          GROK_CHANGED: ${{ steps.sync.outputs.grok_changed }}
+          GROK_VERSION: ${{ steps.sync.outputs.grok_version }}
         run: |
           set -euo pipefail
 
-          FEATURE_ROOT="$RUNNER_TEMP/opencode-features"
-          mkdir -p "$FEATURE_ROOT/opencode"
-          cp -a src/opencode/. "$FEATURE_ROOT/opencode/"
+          FEATURE_ROOT="$RUNNER_TEMP/changed-features"
+          published_features=()
+          mkdir -p "$FEATURE_ROOT"
+
+          if [[ "$OPENCODE_CHANGED" == "true" ]]; then
+            mkdir -p "$FEATURE_ROOT/opencode"
+            cp -a src/opencode/. "$FEATURE_ROOT/opencode/"
+            published_features+=("OpenCode ${OPENCODE_VERSION}")
+          fi
+
+          if [[ "$GROK_CHANGED" == "true" ]]; then
+            mkdir -p "$FEATURE_ROOT/grok"
+            cp -a src/grok/. "$FEATURE_ROOT/grok/"
+            published_features+=("Grok ${GROK_VERSION}")
+          fi
 
           devcontainer features publish "$FEATURE_ROOT" \
             --registry ghcr.io \
             --namespace "${GITHUB_REPOSITORY_OWNER}/devcontainer-features"
 
-          echo "Published OpenCode Feature version $UPSTREAM_VERSION"
+          echo "Published: ${published_features[*]}"
 
-      - name: Commit OpenCode version update
+      - name: Commit feature version updates
         if: steps.sync.outputs.changed == 'true'
         shell: bash
         env:
-          UPSTREAM_VERSION: ${{ steps.sync.outputs.version }}
+          OPENCODE_CHANGED: ${{ steps.sync.outputs.opencode_changed }}
+          OPENCODE_VERSION: ${{ steps.sync.outputs.opencode_version }}
+          GROK_CHANGED: ${{ steps.sync.outputs.grok_changed }}
+          GROK_VERSION: ${{ steps.sync.outputs.grok_version }}
         run: |
           set -euo pipefail
 
@@ -131,12 +200,22 @@ jobs:
           git config user.email \
             "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add src/opencode/devcontainer-feature.json
+          git add \
+            src/opencode/devcontainer-feature.json \
+            src/grok/devcontainer-feature.json
 
           if git diff --cached --quiet; then
             echo "No metadata changes to commit."
             exit 0
           fi
 
-          git commit -m "chore(opencode): sync version ${UPSTREAM_VERSION}"
+          updates=()
+          if [[ "$OPENCODE_CHANGED" == "true" ]]; then
+            updates+=("opencode ${OPENCODE_VERSION}")
+          fi
+          if [[ "$GROK_CHANGED" == "true" ]]; then
+            updates+=("grok ${GROK_VERSION}")
+          fi
+
+          git commit -m "chore: sync feature versions (${updates[*]})"
           git push origin HEAD:main
