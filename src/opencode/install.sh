@@ -13,9 +13,11 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 
 if [ "${VERSION}" = "latest" ]; then
-    npm install -g opencode-ai
+    # npm install -g opencode-ai
+    curl -fsSL https://opencode.ai/v2/install | bash
 else
-    npm install -g "opencode-ai@${VERSION}"
+    # npm install -g "opencode-ai@${VERSION}"
+    curl -fsSL https://opencode.ai/v2/install | bash -s -- "--version ${VERSION}"
 fi
 
 echo "OpenCode installation completed."
