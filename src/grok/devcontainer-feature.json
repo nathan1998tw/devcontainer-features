@@ -1,13 +1,13 @@
 {
   "id": "grok",
-  "version": "1.0.89",
+  "version": "1.0.92",
   "name": "Grok",
   "description": "Install Grok Build CLI (grok)",
   "documentationURL": "https://x.ai/cli",
   "options": {
     "version": {
       "type": "string",
-      "default": "1.0.89",
+      "default": "1.0.92",
       "description": "Version of Grok to install"
     },
     "channel": {
