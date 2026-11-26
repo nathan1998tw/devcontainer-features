@@ -1,13 +1,13 @@
 {
   "id": "opencode",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "name": "OpenCode",
   "description": "Install OpenCode CLI",
   "documentationURL": "https://opencode.ai/",
   "options": {
     "version": {
       "type": "string",
-      "default": "2.4.1",
+      "default": "2.4.2",
       "description": "Version of OpenCode to install"
     }
   }
